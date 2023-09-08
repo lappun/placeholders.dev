@@ -61,6 +61,34 @@ class PoPsRewriter {
 const cacheTtl = 60 * 60 * 24 * 90; // 90 days
 const filesRegex = /(.*\.(ac3|avi|bmp|br|bz2|css|cue|dat|doc|docx|dts|eot|exe|flv|gif|gz|htm|html|ico|img|iso|jpeg|jpg|js|json|map|mkv|mp3|mp4|mpeg|mpg|ogg|pdf|png|ppt|pptx|qt|rar|rm|svg|swf|tar|tgz|ttf|txt|wav|webp|webm|webmanifest|woff|woff2|xls|xlsx|xml|zip))$/;
 
+const PATHPATTERNS = [
+	'/api/:width/:height/:bgColor/:textColor',
+	'/api/:width/:bgColor/:textColor',
+]
+
+function extractParameters(pathname, pathpattern) {
+  const pathSegments = pathname.split('/').filter((segment) => segment !== '');
+  const patternSegments = pathpattern.split('/').filter((segment) => segment !== '');
+
+  if (pathSegments.length !== patternSegments.length) {
+    return false
+  }
+
+  const parameterMap = new Map();
+
+  for (let i = 0; i < patternSegments.length; i++) {
+    const patternSegment = patternSegments[i];
+
+    if (patternSegment.startsWith(':')) {
+      const paramName = patternSegment.slice(1);
+      const paramValue = pathSegments[i];
+      parameterMap.set(paramName, paramValue);
+    }
+  }
+
+  return parameterMap;
+}
+
 async function handleEvent(event) {
 	const url = new URL(event.request.url);
 	url.searchParams.sort(); // improve cache-hits by sorting search params
@@ -68,7 +96,7 @@ async function handleEvent(event) {
 	const cache = caches.default; // Cloudflare edge caching
 	// when publishing to prod, we serve images from an `images` subdomain
 	// when in dev, we serve from `/api`
-	if(url.host === 'images.placeholders.dev' || url.pathname.startsWith('/api')) {
+	if(url.pathname.startsWith('/api')) {
 		// do our API work
 		let response = await cache.match(url, {ignoreMethod: true}); // try to find match for this request in the edge cache
 		if(response) {
@@ -90,6 +118,26 @@ async function handleEvent(event) {
 			bgColor: '#ddd',
 			textColor: 'rgba(0,0,0,0.5)',
 		};
+
+		for (const pattern of PATHPATTERNS) {
+			const options = extractParameters(url.pathname, pattern);
+			if (options) {
+				for(const key of ['width', 'height', 'bgColor', 'textColor']) {
+					if(options.has(key)) {
+						let value = options.get(key);
+						if (key.match(/Color/)) {
+							value = '#' + value;
+						}
+						if(key in sanitizers) {
+							value = sanitizers[key](options.get(key));
+						}
+						if(value) {
+							imageOptions[key] = value;
+						}
+					}
+				}
+			}
+		}
 
 		// options that can be overwritten
 		for(const key of ['width', 'height', 'text', 'dy', 'fontFamily', 'fontWeight', 'fontSize', 'bgColor', 'textColor']) {
