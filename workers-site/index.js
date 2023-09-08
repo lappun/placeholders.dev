@@ -6,7 +6,7 @@ import {sanitizers} from './sanitizers.js';
 
 const CloudflarePoPs = PoPs.cloudflare.code.length;
 
-const DEBUG = false;
+const DEBUG = true;
 
 /* security headers */
 const addHeaders = {
@@ -72,6 +72,7 @@ const filesRegex =
 	/(.*\.(ac3|avi|bmp|br|bz2|css|cue|dat|doc|docx|dts|eot|exe|flv|gif|gz|htm|html|ico|img|iso|jpeg|jpg|js|json|map|mkv|mp3|mp4|mpeg|mpg|ogg|pdf|png|ppt|pptx|qt|rar|rm|svg|swf|tar|tgz|ttf|txt|wav|webp|webm|webmanifest|woff|woff2|xls|xlsx|xml|zip))$/;
 
 const PATHPATTERNS = [
+	'/api/:width/:height/:bgColor/:textColor/:fontSize',
 	'/api/:width/:height/:bgColor/:textColor',
 	'/api/:width/:bgColor/:textColor',
 ];
@@ -90,10 +91,10 @@ function extractParameters(pathname, pathpattern) {
 			const paramName = patternSegment.slice(1);
 			let paramValue = pathSegments[i];
 			if(/Color/.test(paramName)) {
-				paramValue = '%23' + paramValue;
+				paramValue = '#' + paramValue;
 			}
 			parameterMap.set(paramName, paramValue);
-			if(paramName === 'width' && !pathpattern.test(/height/)) {
+			if(paramName === 'width' && !/height/.test(pathpattern)) {
 				parameterMap.set('height', paramValue);
 			}
 		}
@@ -111,7 +112,7 @@ async function handleEvent(event) {
 	if(url.pathname.startsWith('/api')) {
 		// do our API work
 		let response = await cache.match(url, {ignoreMethod: true}); // try to find match for this request in the edge cache
-		if(response) {
+		if(response && !DEBUG) {
 			// use cache found on Cloudflare edge. Set X-Worker-Cache header for helpful debug
 			const newHdrs = new Headers(response.headers);
 			newHdrs.set('X-Worker-Cache', 'true');
@@ -134,9 +135,10 @@ async function handleEvent(event) {
 		for(const pattern of PATHPATTERNS) {
 			const options = extractParameters(url.pathname, pattern);
 			if(options) {
-				for(const key of ['width', 'height', 'bgColor', 'textColor']) {
+				for(const key of ['width', 'height', 'bgColor', 'textColor', 'fontSize']) {
 					if(options.has(key)) {
 						let value = options.get(key);
+						console.log('path key', key, 'value', value);
 						if(key in sanitizers) {
 							value = sanitizers[key](options.get(key));
 						}
@@ -161,11 +163,10 @@ async function handleEvent(event) {
 			'textColor',
 		]) {
 			if(url.searchParams.has(key)) {
-				let value;
+				let value = url.searchParams.get(key);
+				console.log('query key', key, 'value', value);
 				if(key in sanitizers) {
-					value = sanitizers[key](url.searchParams.get(key));
-				}else{
-					value = url.searchParams.get(key);
+					value = sanitizers[key](value);
 				}
 				if(value) {
 					imageOptions[key] = value;
