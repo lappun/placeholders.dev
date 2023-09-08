@@ -81,22 +81,23 @@ function extractParameters(pathname, pathpattern) {
 	const patternSegments = pathpattern
 		.split('/')
 		.filter(segment => segment !== '');
-
 	if(pathSegments.length !== patternSegments.length) {
 		return false;
 	}
-
 	const parameterMap = new Map();
-
 	for(const [i, patternSegment] of patternSegments.entries()) {
-
 		if(patternSegment.startsWith(':')) {
 			const paramName = patternSegment.slice(1);
-			const paramValue = pathSegments[i];
+			let paramValue = pathSegments[i];
+			if(/Color/.test(paramName)) {
+				paramValue = '%23' + paramValue;
+			}
 			parameterMap.set(paramName, paramValue);
+			if(paramName === 'width' && !pathpattern.test(/height/)) {
+				parameterMap.set('height', paramValue);
+			}
 		}
 	}
-
 	return parameterMap;
 }
 
@@ -136,9 +137,6 @@ async function handleEvent(event) {
 				for(const key of ['width', 'height', 'bgColor', 'textColor']) {
 					if(options.has(key)) {
 						let value = options.get(key);
-						if(/Color/.test(key)) {
-							value = '#' + value;
-						}
 						if(key in sanitizers) {
 							value = sanitizers[key](options.get(key));
 						}
